@@ -146,4 +146,33 @@ object order {
     orderId: OrderId,
     address: Address) extends OrderCommand
 
+
+  /** Events for Order aggregate root */
+  sealed trait OrderEvent
+
+  case class OrderCreated(
+    orderId: OrderId,
+    customerId: CustomerId,
+    shippingAddress: Address) extends OrderEvent
+
+  case class ProductAdded(
+    orderId: OrderId,
+    productId: ProductId,
+    quantity: Int,
+    unit: ProductUnit,
+    price: BigDecimal) extends OrderEvent
+
+  case class ProductRemoved(
+    orderId: OrderId,
+    productId: ProductId) extends OrderEvent
+
+  case class QuantityUpdated(
+    orderId: OrderId,
+    productId: ProductId,
+    quantity: Int) extends OrderEvent
+
+  case class ShippingAddressChanged(
+    orderId: OrderId,
+    address: Address) extends OrderEvent
+
 }
