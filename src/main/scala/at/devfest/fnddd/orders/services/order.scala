@@ -1,5 +1,7 @@
 package at.devfest.fnddd.orders.services
 
+import scala.concurrent.ExecutionContext.Implicits.global
+
 /**
  * Order domain services boundary
  *
@@ -9,6 +11,7 @@ package at.devfest.fnddd.orders.services
  */
 object order {
   /** Layering of imports */
+  import akka.actor.{Actor, ActorRef}
   import scalaz.Validation
   import scalaz.syntax.validation._
   import at.devfest.fnddd.orders.domain.order._
@@ -26,14 +29,30 @@ object order {
   /**
    * Service for handling Order aggregate root commands
    */
-  class OrderService(orderRepository: OrderRepository) {
+  class OrderService(processor: ActorRef) {
+    import scala.concurrent.duration._
+    import akka.util.Timeout
+    import akka.pattern.ask
+    import concurrent.Future
+
+    implicit val timeout = Timeout(5.seconds)
+
+    def execute(command: OrderCommand): Future[Order] = {
+      (processor ? command)
+        .mapTo[Validation[String, Order]] // Conversion to typed result from Actor
+        .map( _.valueOr( cause => throw new RuntimeException(cause)) ) // Conversion from Validation to an Exception within Future
+    }
+  }
+
+  /** Processor of commands for Order aggregate root */
+  class OrderProcessor(orderRepository: OrderRepository) extends Actor {
 
     /** Command handler will be function, type alias */
     type CommandHandler = OrderCommand => Validation[String, (Order, OrderEvent)] // Expected result from command application is updated order and event what happened
 
     /** Main service method, executes commands */
-    def execute(command: OrderCommand) {
-      doCommand(command) valueOr ( cause => throw new RuntimeException(cause) ) // Conversion from Validation to an Exception
+    override def receive = {
+      case command: OrderCommand => sender ! doCommand(command)
     }
 
     /** Mapping of commands to its handlers */
@@ -42,7 +61,7 @@ object order {
         createOrder(orderId, customerId, address)
       case AddProduct(orderId, productId, quantity, unit, price) =>
         updateOrder(orderId, order => order.addProduct(productId, quantity, unit, price)) {
-          updatedOrder => ProductAdded(orderId, productId, quantity, unit, price)  // Each domain change creates event
+          updatedOrder => ProductAdded(orderId, productId, quantity, unit, price)
         }
       case RemoveProduct(orderId, productId) =>
         updateOrder(orderId, _.removeProduct(productId)) { _ =>
@@ -78,7 +97,6 @@ object order {
       val result = commandHandler(command) // Execute command
       result.foreach { case (order, event) => // Result of command handler delivers appropriate event too
         orderRepository.saveOrUpdate(order) // Store changes as side-effect
-        // Notify observers with event
       }
       result.map ( _._1 )
     }
