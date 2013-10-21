@@ -6,10 +6,9 @@ package at.devfest.fnddd.orders.domain
 object order {
   /** Layering of imports */
   import org.joda.time.DateTime
-
   import scalaz.Validation
   import scalaz.syntax.validation._
-
+  import at.devfest.fnddd.utils._
   import at.devfest.fnddd.orders.domain.customer._
   import at.devfest.fnddd.orders.domain.product._
 
@@ -38,49 +37,77 @@ object order {
     lines: Vector[OrderLine] = Vector.empty,
     created: DateTime = DateTime.now()) {
 
+    private def quantityInvariant(quantity: Int): Validation[String, Int] = {
+      if (quantity <= 0) s"Quantity must be greater than 0".failure
+      else quantity.success
+    }
+
+    private def priceInvariant(price: BigDecimal): Validation[String, BigDecimal] = {
+      if (price <= 0) s"Price must be greater than 0".failure
+      else price.success
+    }
+
+    private def findProductById(productId: ProductId): (Option[OrderLine], Vector[OrderLine]) = {
+      val (found, rest) = lines.partition( _.productId == productId )
+      (found.headOption, rest)
+    }
+
+    private def alreadyExists(partitions: (Option[OrderLine], Vector[OrderLine])): Validation[String, (Option[OrderLine], Vector[OrderLine])] = {
+      val (found, _) = partitions
+      found map { foundLine =>
+        s"Product already in order".failure
+      } getOrElse partitions.success
+    }
+
+    private def notExists(partitions: (Option[OrderLine], Vector[OrderLine])): Validation[String, (Option[OrderLine], Vector[OrderLine])] = {
+      val (found, _) = partitions
+      found map { foundLine =>
+        partitions.success
+      } getOrElse {
+        s"Product not in order".failure
+      }
+    }
+
+    private val productAlreadyExists: ProductId => Validation[String, (Option[OrderLine], Vector[OrderLine])] = findProductById _ andThen alreadyExists _ // Functions combine by their inputs/outputs
+    private val productNotExists: ProductId => Validation[String, (Option[OrderLine], Vector[OrderLine])] = findProductById _ andThen notExists _
+
+
     /** Example of aggregate root method */
     def addProduct(
       productId: ProductId, quantity: Int,
       unit: ProductUnit, price: BigDecimal): Validation[String, Order] = {
-      // Just checking some invariants
-      if (quantity <= 0) s"Quantity must be greater than 0".failure
-      else if (price <= 0) s"Price must be greater than 0".failure
-      else {
-        // Lookup if product is not in order
-        val (existing, rest) = lines.partition( _.productId == productId )
-        if (existing.nonEmpty) s"$productId already in order".failure
-        else {
-          // Add product to order
-          val line = OrderLine(productId, quantity, unit, price)
-          copy(lines = rest :+ line).success
-        }
+
+      for { // First check preconditions, flow works only on SUCCESS (positive scenario only)
+        _ <- quantityInvariant(quantity)
+        _ <- priceInvariant(price)
+        (found, rest) <- productAlreadyExists(productId)
+      } yield { // Then update order
+        val line = OrderLine(productId, quantity, unit, price)
+        copy(lines = rest :+ line)
       }
     }
 
     /**
      * Another methods implemented similar way as addProduct.
-     * Better, but still not vary functional
      */
 
     def removeProduct(productId: ProductId): Validation[String, Order] = {
-      // Lookup if product is in order
-      val (remove, rest) = lines.partition( _.productId == productId )
-      if (remove.isEmpty) s"$productId not in order".failure
-      else // Remove product from order
-        copy(lines = rest).success
+      // First check preconditions
+      productNotExists(productId) map { partitions => // Flow works only on SUCCESS again
+        // Then update order
+        val (_, rest) = partitions
+        copy(lines = rest)
+      }
     }
 
     def updateQuantity(productId: ProductId, quantity: Int): Validation[String, Order] = {
-      // Lookup if product is not in order
-      val (existing, rest) = lines.partition( _.productId == productId )
-      if (existing.isEmpty) s"$productId not in order".failure
-      else {
-        val line = existing.head
-        val resultingQuantity = line.quantity + quantity
-        if (resultingQuantity <= 0) s"Resulting quantity is negative or 0".failure
-
-        // Update of product and order
-        copy(lines = rest :+ line.copy(quantity = resultingQuantity)).success
+      for { // First check preconditions
+        (found, rest) <- productNotExists(productId)
+        line = found.get
+        resultingQuantity <- quantityInvariant(line.quantity + quantity)
+      } yield {
+        // Then update order
+        copy(lines = rest :+ line.copy(quantity = resultingQuantity))
       }
     }
 
