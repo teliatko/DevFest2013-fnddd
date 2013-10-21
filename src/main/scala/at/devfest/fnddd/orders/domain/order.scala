@@ -34,6 +34,36 @@ object order {
     var customerId: CustomerId,
     var shipmentAddress: Address,
     var lines: ArrayBuffer[OrderLine] = ArrayBuffer.empty,
-    var created: DateTime = DateTime.now())
+    var created: DateTime = DateTime.now()) {
+
+    /** Example of aggregate root method */
+    def addProduct(
+      productId: ProductId, quantity: Int,
+      unit: ProductUnit, price: BigDecimal) {
+      // Just checking some invariants
+      require(quantity > 0, s"Quantity must be greater than 0")
+      require(price > 0, s"Price must be greater than 0")
+
+      // Lookup if product is not already in order
+      val (existing, rest) = lines.partition( _.productId == productId )
+      require(existing.isEmpty, s"$productId not in order")
+
+      // Add product to order
+      val line = new OrderLine(productId, quantity, unit, price)
+      lines += line
+    }
+
+    /**
+     * Another methods for manipulating order. Left unimplemented,
+     * similar approach like in addProduct.
+     */
+
+    def removeProduct(productId: ProductId) { ??? }
+
+    def updateQuantity(productId: ProductId, quantity: Int) { ??? }
+
+    def changeShippingAddress(address: Address) { ??? }
+
+  }
 
 }
