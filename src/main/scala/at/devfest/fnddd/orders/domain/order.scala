@@ -68,7 +68,7 @@ object order {
       }
     }
 
-    private val productAlreadyExists: ProductId => Validation[String, (Option[OrderLine], Vector[OrderLine])] = findProductById _ andThen alreadyExists _ // Functions combine by their inputs/outputs
+    private val productAlreadyExists: ProductId => Validation[String, (Option[OrderLine], Vector[OrderLine])] = findProductById _ andThen alreadyExists _
     private val productNotExists: ProductId => Validation[String, (Option[OrderLine], Vector[OrderLine])] = findProductById _ andThen notExists _
 
 
@@ -117,5 +117,33 @@ object order {
     }
 
   }
+
+  /** Commands for Order aggregate root */
+  sealed trait OrderCommand
+
+  case class CreateOrder(
+    orderId: OrderId,
+    customerId: CustomerId,
+    shippingAddress: Address) extends OrderCommand
+
+  case class AddProduct(
+    orderId: OrderId,
+    productId: ProductId,
+    quantity: Int,
+    unit: ProductUnit,
+    price: BigDecimal) extends OrderCommand
+
+  case class RemoveProduct(
+    orderId: OrderId,
+    productId: ProductId) extends OrderCommand
+
+  case class UpdateQuantity(
+    orderId: OrderId,
+    productId: ProductId,
+    quantity: Int) extends OrderCommand
+
+  case class ChangeShippingAddress(
+    orderId: OrderId,
+    address: Address) extends OrderCommand
 
 }
